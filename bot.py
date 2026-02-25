@@ -5,16 +5,16 @@ import random
 import asyncio
 import threading
 from flask import Flask
-from pyrogram import Client, filters
+from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait
 
 # --- CONFIGURATION ---
-# Ye variables Render dashboard me Environment Variables me dalne hain
-API_ID = int(os.environ.get("API_ID", "123456")) # Apna API ID dalein
-API_HASH = os.environ.get("API_HASH", "your_api_hash") # Apna API Hash dalein
+# Render Environment Variables se data uthayega
+API_ID = int(os.environ.get("API_ID", "123456"))
+API_HASH = os.environ.get("API_HASH", "your_api_hash")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token")
 
-ADMIN_ID = 8306853454
+ADMIN_ID = 8306853454  # Aapki Admin ID
 SUPPORT_ID = "@SANATANI_GOJO"
 DATA_FILE = "bot_data.json"
 
@@ -23,23 +23,21 @@ app_web = Flask(__name__)
 
 @app_web.route('/')
 def home():
-    return "Bot is running securely 10000%!"
+    return "Security Bot 10000% Online & Secure!"
 
 def run_web():
+    # Render default port 8080 use karta hai
     port = int(os.environ.get("PORT", 8080))
     app_web.run(host="0.0.0.0", port=port)
 
-# Start Fake Port in background
-threading.Thread(target=run_web, daemon=True).start()
-
-# --- BOT SETUP ---
-app = Client("SecurityBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# --- DATABASE HANDLING (JSON) ---
+# --- DATABASE HANDLING ---
 def load_data():
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(DATA_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {"licenses": {}, "active_groups": {}, "settings": {}}
     return {"licenses": {}, "active_groups": {}, "settings": {}}
 
 def save_data(data):
@@ -49,140 +47,152 @@ def save_data(data):
 db = load_data()
 tracked_messages = []
 
+# --- BOT SETUP ---
+app = Client("SecurityBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
 # --- COMMANDS ---
 
-@app.on_message(filters.command("start") & filters.private)
+@app.on_message(filters.command("start"))
 async def start_cmd(client, message):
     await message.reply_text(
-        f"**Hello!** I am an Advanced Group Security Bot.\n\n"
-        f"To use me in your group, you need a premium license.\n"
-        f"Contact Support: {SUPPORT_ID}"
+        f"🛡️ **Advanced Group Security Bot**\n\n"
+        f"I am designed to keep your group 10000% secure with auto-chat cleaning.\n\n"
+        f"👤 **Support:** {SUPPORT_ID}\n"
+        f"💳 **Owner ID:** `{ADMIN_ID}`\n\n"
+        f"Use /help to see setup instructions."
     )
+
+@app.on_message(filters.command("help"))
+async def help_cmd(client, message):
+    help_text = (
+        "📖 **Setup Guide:**\n\n"
+        "1. Add me to group & make me **Admin**.\n"
+        "2. Buy license from: @SANATANI_GOJO\n"
+        "3. Use `/redeem [code]` (Only for Group Owner/Admins).\n"
+        "4. Set speed: `/settime [minutes]`.\n\n"
+        "**Admin Commands:**\n"
+        "• `/status` - Check plan expiry\n"
+        "• `/settime` - Change message delete delay"
+    )
+    await message.reply_text(help_text)
 
 @app.on_message(filters.command("gen") & filters.user(ADMIN_ID))
 async def gen_code(client, message):
     try:
         days = int(message.command[1])
-    except IndexError:
-        await message.reply_text("Usage: `/gen [days]` (e.g., `/gen 30`)")
-        return
-    
-    # Generate 6 digit code
-    code = str(random.randint(100000, 999999))
-    db["licenses"][code] = days
-    save_data(db)
-    
-    await message.reply_text(f"**License Generated!**\n\nCode: `{code}`\nValidity: {days} Days\nShare this code with the user.")
+        code = str(random.randint(100000, 999999))
+        db["licenses"][code] = days
+        save_data(db)
+        await message.reply_text(f"✅ **License Created!**\n\nCode: `{code}`\nDays: {days}\n\nGive this to the user.")
+    except:
+        await message.reply_text("Usage: `/gen 30` (for 30 days)")
 
 @app.on_message(filters.command("redeem") & filters.group)
 async def redeem_code(client, message):
     chat_id = str(message.chat.id)
     try:
-        code = message.command[1]
-    except IndexError:
-        await message.reply_text("Usage: `/redeem [6-digit-code]`")
-        return
-    
-    # Check admin rights
-    member = await client.get_chat_member(message.chat.id, message.from_user.id)
-    if member.status not in ["creator", "administrator"]:
-        await message.reply_text("Only Group Admins can redeem the code.")
-        return
+        # Permission Check: Owner or Admin
+        check = await client.get_chat_member(message.chat.id, message.from_user.id)
+        if check.status not in [enums.ChatMemberStatus.OWNER, enums.ChatMemberStatus.ADMINISTRATOR]:
+            return await message.reply_text("❌ Only Group Owner or Admins can use this.")
 
-    if code in db["licenses"]:
-        days = db["licenses"].pop(code)
-        expiry_time = time.time() + (days * 86400) # Convert days to seconds
-        
-        db["active_groups"][chat_id] = expiry_time
-        if chat_id not in db["settings"]:
-            db["settings"][chat_id] = {"delete_time": 60} # Default 1 min
-            
-        save_data(db)
-        await message.reply_text(f"✅ **Premium Activated!**\n\nThis group is now fully secured. Valid for {days} days.")
-    else:
-        await message.reply_text("❌ Invalid or Expired Code.")
+        if len(message.command) < 2:
+            return await message.reply_text("Usage: `/redeem 123456`")
+
+        code = message.command[1]
+        if code in db["licenses"]:
+            days = db["licenses"].pop(code)
+            expiry = time.time() + (days * 86400)
+            db["active_groups"][chat_id] = expiry
+            if chat_id not in db["settings"]:
+                db["settings"][chat_id] = {"delete_time": 60} # Default 1 min
+            save_data(db)
+            await message.reply_text(f"🔥 **Premium Activated!**\n\nGroup is now secure.\nExpires on: {time.ctime(expiry)}")
+        else:
+            await message.reply_text("❌ Invalid or used code.")
+    except Exception as e:
+        await message.reply_text("❌ Make sure I am Admin in this group!")
 
 @app.on_message(filters.command("settime") & filters.group)
 async def set_time(client, message):
     chat_id = str(message.chat.id)
-    
-    # Check if premium
     if chat_id not in db["active_groups"] or db["active_groups"][chat_id] < time.time():
-        await message.reply_text(f"This group does not have an active premium plan. Contact {SUPPORT_ID}")
-        return
-        
-    member = await client.get_chat_member(message.chat.id, message.from_user.id)
-    if member.status not in ["creator", "administrator"]:
-        return
+        return await message.reply_text("❌ This group doesn't have an active plan.")
 
     try:
-        minutes = int(message.command[1])
-        db["settings"][chat_id]["delete_time"] = minutes * 60
+        check = await client.get_chat_member(message.chat.id, message.from_user.id)
+        if check.status not in [enums.ChatMemberStatus.OWNER, enums.ChatMemberStatus.ADMINISTRATOR]:
+            return
+            
+        mins = int(message.command[1])
+        db["settings"][chat_id]["delete_time"] = mins * 60
         save_data(db)
-        await message.reply_text(f"✅ Auto-delete time set to {minutes} minutes.")
-    except (IndexError, ValueError):
-        await message.reply_text("Usage: `/settime [minutes]` (e.g., `/settime 1`)")
+        await message.reply_text(f"⏱️ **Auto-delete interval set to {mins} minute(s).**")
+    except:
+        await message.reply_text("Usage: `/settime 1` (for 1 minute)")
 
-# --- MESSAGE TRACKING & AUTO-DELETE SYSTEM ---
-
-@app.on_message(filters.group & ~filters.service)
-async def track_all_messages(client, message):
+@app.on_message(filters.command("status") & filters.group)
+async def status_cmd(client, message):
     chat_id = str(message.chat.id)
-    
-    # Ignore if not premium or expired
-    if chat_id not in db["active_groups"] or db["active_groups"][chat_id] < time.time():
-        return
-        
-    delete_delay = db["settings"].get(chat_id, {}).get("delete_time", 60)
-    
-    tracked_messages.append({
-        'chat_id': message.chat.id,
-        'msg_id': message.id,
-        'delete_at': time.time() + delete_delay
-    })
+    if chat_id in db["active_groups"]:
+        rem = db["active_groups"][chat_id] - time.time()
+        if rem > 0:
+            days = int(rem // 86400)
+            await message.reply_text(f"✅ **Premium: ACTIVE**\n⏳ Remaining: {days} days")
+        else:
+            await message.reply_text("❌ **Premium: EXPIRED**")
+    else:
+        await message.reply_text("❌ **Premium: NOT ACTIVE**")
 
-async def auto_delete_worker():
+# --- AUTO DELETE ENGINE ---
+@app.on_message(filters.group & ~filters.service)
+async def track_messages(client, message):
+    chat_id = str(message.chat.id)
+    # Only track if premium is active
+    if chat_id in db["active_groups"] and db["active_groups"][chat_id] > time.time():
+        delay = db["settings"].get(chat_id, {}).get("delete_time", 60)
+        tracked_messages.append({
+            'cid': message.chat.id,
+            'mid': message.id,
+            'at': time.time() + delay
+        })
+
+async def delete_worker():
     while True:
         now = time.time()
-        to_delete = {}
         global tracked_messages
-        remaining_messages = []
+        # Messages to delete
+        to_del = [m for m in tracked_messages if now >= m['at']]
+        # Messages to keep for later
+        tracked_messages = [m for m in tracked_messages if now < m['at']]
 
-        # Find messages that need to be deleted
-        for msg in tracked_messages:
-            if now >= msg['delete_at']:
-                if msg['chat_id'] not in to_delete:
-                    to_delete[msg['chat_id']] = []
-                to_delete[msg['chat_id']].append(msg['msg_id'])
-            else:
-                remaining_messages.append(msg)
-
-        tracked_messages = remaining_messages
-
-        # Delete messages in chunks of 100 to avoid API limits
-        for chat_id, msg_ids in to_delete.items():
+        for m in to_del:
             try:
-                for i in range(0, len(msg_ids), 100):
-                    await app.delete_messages(chat_id, msg_ids[i:i+100])
+                await app.delete_messages(m['cid'], m['mid'])
             except FloodWait as e:
-                # If Telegram rate limits us, wait and try again
                 await asyncio.sleep(e.value)
-            except Exception:
-                # Ignore errors like 'Message already deleted'
+            except:
                 pass
-                
-        await asyncio.sleep(5) # Check every 5 seconds
+        await asyncio.sleep(2) # Check every 2 seconds
 
-# --- RUN BOT ---
-async def main():
+# --- ASYNC STARTUP ---
+async def start_services():
+    # Start Web Server in Thread
+    threading.Thread(target=run_web, daemon=True).start()
+    
+    # Start Bot
     await app.start()
-    print("Bot Started Successfully!")
-    asyncio.create_task(auto_delete_worker())
+    print(">>> Bot is Online (10000% Secure Mode)")
+    
+    # Start Background Delete Worker
+    asyncio.create_task(delete_worker())
     
     # Keep running
-    while True:
-        await asyncio.sleep(3600)
+    from pyrogram.methods.utilities.idle import idle
+    await idle()
+    await app.stop()
 
 if __name__ == "__main__":
-    app.run(main())
-  
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_services())
+        
