@@ -17,16 +17,14 @@ ADMIN_ID = 8306853454
 SUPPORT_ID = "@SANATANI_GOJO"
 DATA_FILE = "bot_data.json"
 
-# --- FAKE WEB SERVICE FOR RENDER ---
 app_web = Flask(__name__)
 @app_web.route('/')
-def home(): return "Security Bot 10000% Online & Secure!"
+def home(): return "Bot-Killer Security Online!"
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
     app_web.run(host="0.0.0.0", port=port)
 
-# --- DATABASE ---
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -40,18 +38,12 @@ def save_data(data):
 db = load_data()
 tracked_messages = []
 
-# --- BOT SETUP ---
 app = Client("SecurityBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- COMMANDS ---
-
+# --- COMMANDS (Same as before) ---
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message):
-    await message.reply_text(f"🛡️ **Group Security Bot**\n\nOwner: {SUPPORT_ID}\nUse /help for setup.")
-
-@app.on_message(filters.command("help"))
-async def help_cmd(client, message):
-    await message.reply_text("1. Add me as Admin.\n2. /redeem [code]\n3. /settime [min]\n\nI will delete A to Z messages (User, Admin, Owner, & Bots).")
+    await message.reply_text(f"🛡️ **Group Security Bot**\n\nOwner: {SUPPORT_ID}\nI delete A to Z messages including Bots like Rose.")
 
 @app.on_message(filters.command("gen") & filters.user(ADMIN_ID))
 async def gen_code(client, message):
@@ -70,14 +62,13 @@ async def redeem_code(client, message):
         user = await client.get_chat_member(message.chat.id, message.from_user.id)
         if user.status not in [enums.ChatMemberStatus.OWNER, enums.ChatMemberStatus.ADMINISTRATOR]:
             return await message.reply_text("❌ Only Admins can redeem.")
-        
         code = message.command[1]
         if code in db["licenses"]:
             days = db["licenses"].pop(code)
             db["active_groups"][chat_id] = time.time() + (days * 86400)
             if chat_id not in db["settings"]: db["settings"][chat_id] = {"delete_time": 60}
             save_data(db)
-            await message.reply_text("🔥 Premium Activated! A to Z cleaning started.")
+            await message.reply_text("🔥 Premium Activated! Bot-Killer mode ON.")
         else: await message.reply_text("❌ Invalid Code.")
     except: await message.reply_text("❌ Use: `/redeem [code]`")
 
@@ -90,26 +81,28 @@ async def set_time(client, message):
         mins = int(message.command[1])
         db["settings"][chat_id]["delete_time"] = mins * 60
         save_data(db)
-        await message.reply_text(f"⏱️ Delete time: {mins} min.")
+        await message.reply_text(f"⏱️ Delete time set to {mins} min.")
     except: await message.reply_text("Usage: `/settime 1`")
 
-# --- A TO Z DELETE ENGINE ---
-# Isme filters.all use kiya h taaki Bots aur Admins sab cover ho jayein
+# --- 🔥 THE BOT KILLER ENGINE (A to Z Delete) 🔥 ---
+
+# Handler for ALL messages (Users, Admins, etc.)
 @app.on_message(filters.group & ~filters.service, group=1)
 async def track_all(client, message):
     chat_id = str(message.chat.id)
-    # Check if group is premium
     if chat_id in db["active_groups"] and db["active_groups"][chat_id] > time.time():
-        # Skip commands taaki admin control kar sake (optional)
-        if message.text and message.text.startswith("/"):
-            return
-            
+        if message.text and message.text.startswith("/"): return
         delay = db["settings"].get(chat_id, {}).get("delete_time", 60)
-        tracked_messages.append({
-            'cid': message.chat.id, 
-            'mid': message.id, 
-            'at': time.time() + delay
-        })
+        tracked_messages.append({'cid': message.chat.id, 'mid': message.id, 'at': time.time() + delay})
+
+# Special Handler for OTHER BOTS (Like @MissRose_bot)
+@app.on_message(filters.group & filters.bot, group=2)
+async def track_bots(client, message):
+    chat_id = str(message.chat.id)
+    if chat_id in db["active_groups"] and db["active_groups"][chat_id] > time.time():
+        # Bots ke messages bina kisi exception ke track honge
+        delay = db["settings"].get(chat_id, {}).get("delete_time", 60)
+        tracked_messages.append({'cid': message.chat.id, 'mid': message.id, 'at': time.time() + delay})
 
 async def delete_worker():
     while True:
@@ -117,15 +110,12 @@ async def delete_worker():
         global tracked_messages
         to_del = [m for m in tracked_messages if now >= m['at']]
         tracked_messages = [m for m in tracked_messages if now < m['at']]
-
         for m in to_del:
-            try:
-                await app.delete_messages(m['cid'], m['mid'])
+            try: await app.delete_messages(m['cid'], m['mid'])
             except FloodWait as e: await asyncio.sleep(e.value)
             except: pass
         await asyncio.sleep(1)
 
-# --- STARTUP ---
 async def start_services():
     threading.Thread(target=run_web, daemon=True).start()
     await app.start()
@@ -135,3 +125,4 @@ async def start_services():
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(start_services())
+        
