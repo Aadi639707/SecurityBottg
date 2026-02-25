@@ -4,7 +4,7 @@ import json
 import random
 import asyncio
 import threading
-import requests  # Ye line top pe add karo
+import requests
 from flask import Flask
 from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait
@@ -13,35 +13,34 @@ from pyrogram.errors import FloodWait
 API_ID = int(os.environ.get("API_ID", "123456"))
 API_HASH = os.environ.get("API_HASH", "your_api_hash")
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
-RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "") # Render auto provide karta hai
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "") # Apna Render URL yahan bhi manually daal sakte ho
 
 ADMIN_ID = 8306853454 
 SUPPORT_ID = "@SANATANI_GOJO"
 DATA_FILE = "userbot_data.json"
 
-# --- RENDER WEB SERVICE & ANTI-SLEEP ---
+# --- ANTI-SLEEP WEB SERVICE ---
 app_web = Flask(__name__)
 
 @app_web.route('/')
 def home():
-    return "Userbot 10000% Secure & Always Awake!"
+    return "Userbot Status: 10000% Awake & Secure!"
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
     app_web.run(host="0.0.0.0", port=port)
 
-# Naya logic: Bot khud ko ping karega har 10 minute me
 def keep_alive():
+    """Bot ko soney se rokne ke liye self-ping logic"""
     if not RENDER_URL:
-        print("⚠️ RENDER_EXTERNAL_URL is missing, self-ping disabled.")
         return
     while True:
         try:
             requests.get(RENDER_URL)
-            print("Pinged self to stay awake!")
-        except:
-            pass
-        time.sleep(600) # 10 minute ka delay
+            print(">>> Anti-Sleep: Pinged successfully!")
+        except Exception as e:
+            print(f">>> Anti-Sleep Error: {e}")
+        time.sleep(600) # Har 10 minute me ping karega
 
 # --- DATABASE ---
 def load_data():
@@ -57,7 +56,11 @@ def save_data(data):
 db = load_data()
 tracked_messages = []
 
-# --- USERBOT CLIENT ---
+# --- CLIENT SETUP ---
+if not SESSION_STRING:
+    print("❌ SESSION_STRING Missing!")
+    exit(1)
+
 app = Client(
     "SecurityUserbot",
     api_id=API_ID,
@@ -66,11 +69,43 @@ app = Client(
     in_memory=True
 )
 
-# ... (Purane Commands: Start, Gen, Redeem wahi rahenge) ...
+# --- COMMANDS ---
 
-# --- DELETE ENGINE (Same as before) ---
+@app.on_message(filters.command("start", prefixes=".") & (filters.user(ADMIN_ID) | filters.me))
+async def start_cmd(client, message):
+    await message.edit("🛡️ **Userbot Security: ONLINE**\n\nMain ab jag gaya hoon. Rose Bot ki chutti confirm hai!")
+
+@app.on_message(filters.command("gen", prefixes=".") & (filters.user(ADMIN_ID) | filters.me))
+async def gen_code(client, message):
+    try:
+        days = int(message.command[1])
+        code = str(random.randint(100000, 999999))
+        db["licenses"][code] = days
+        save_data(db)
+        await message.edit(f"✅ **License Created!**\nCode: `{code}`\nValidity: {days} Days")
+    except: await message.edit("Usage: `.gen 30`")
+
+@app.on_message(filters.command("redeem", prefixes=".") & filters.group)
+async def redeem_code(client, message):
+    chat_id = str(message.chat.id)
+    try:
+        user_status = await client.get_chat_member(message.chat.id, message.from_user.id)
+        if user_status.status not in [enums.ChatMemberStatus.OWNER, enums.ChatMemberStatus.ADMINISTRATOR] and message.from_user.id != ADMIN_ID:
+            return await message.edit("❌ Only Admins can redeem.")
+        
+        code = message.command[1]
+        if code in db["licenses"]:
+            days = db["licenses"].pop(code)
+            db["active_groups"][chat_id] = time.time() + (days * 86400)
+            if chat_id not in db["settings"]: db["settings"][chat_id] = {"delete_time": 60}
+            save_data(db)
+            await message.edit("🔥 **Premium Activated!** A to Z Delete mode is ON.")
+        else: await message.edit("❌ Invalid Code.")
+    except: await message.edit("Usage: `.redeem [code]`")
+
+# --- DELETE ENGINE ---
 @app.on_message(filters.group & ~filters.me, group=1)
-async def track_everything(client, message):
+async def track_msg(client, message):
     chat_id = str(message.chat.id)
     if chat_id in db["active_groups"] and db["active_groups"][chat_id] > time.time():
         if message.text and message.text.startswith("."): return
@@ -89,20 +124,15 @@ async def delete_worker():
             except: pass
         await asyncio.sleep(1)
 
-# --- UPDATED STARTUP ---
+# --- STARTUP ---
 async def start_services():
-    # Start web server
     threading.Thread(target=run_web, daemon=True).start()
-    
-    # Start self-ping (Anti-Sleep)
     threading.Thread(target=keep_alive, daemon=True).start()
-    
     await app.start()
-    print(">>> USERBOT IS ONLINE & ANTI-SLEEP ACTIVE!")
     asyncio.create_task(delete_worker())
     from pyrogram.methods.utilities.idle import idle
     await idle()
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(start_services())
-                
+    
