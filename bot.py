@@ -9,17 +9,16 @@ from pyrogram import Client, filters, enums
 from pyrogram.errors import FloodWait
 
 # --- CONFIGURATION ---
-# Userbot ke liye API_ID aur API_HASH bahut zaroori hain
+# Ye variables Render Dashboard me hona zaroori hai
 API_ID = int(os.environ.get("API_ID", "123456"))
 API_HASH = os.environ.get("API_HASH", "your_api_hash")
-# Isme BOT_TOKEN nahi lagega, balki STRING_SESSION lagega ya login karna hoga
-# Sabse simple hai login session use karna
-SESSION_STRING = os.environ.get("SESSION_STRING", "") 
+SESSION_STRING = os.environ.get("SESSION_STRING", "") # StringFatherBot se lein
 
-ADMIN_ID = 8306853454 
+ADMIN_ID = 8306853454  # Aapki Admin ID
 SUPPORT_ID = "@SANATANI_GOJO"
 DATA_FILE = "userbot_data.json"
 
+# --- RENDER FAKE PORT ---
 app_web = Flask(__name__)
 @app_web.route('/')
 def home(): return "Userbot Security 10000% Online!"
@@ -28,6 +27,7 @@ def run_web():
     port = int(os.environ.get("PORT", 8080))
     app_web.run(host="0.0.0.0", port=port)
 
+# --- DATABASE ---
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -41,10 +41,19 @@ def save_data(data):
 db = load_data()
 tracked_messages = []
 
-# Yahan hum Client mein session string use kar rahe hain
-app = Client("SecurityUserbot", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
+# --- USERBOT CLIENT ---
+app = Client(
+    "SecurityUserbot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=SESSION_STRING
+)
 
-# --- COMMANDS (Only for Admin ID) ---
+# --- COMMANDS (Prefix '.') ---
+
+@app.on_message(filters.command("start", prefixes=".") & filters.me)
+async def start_cmd(client, message):
+    await message.edit("🛡️ **Userbot Security Active**\n\nMain ab active hoon aur A to Z (including Rose) messages delete karunga.")
 
 @app.on_message(filters.command("gen", prefixes=".") & filters.user(ADMIN_ID))
 async def gen_code(client, message):
@@ -60,15 +69,21 @@ async def gen_code(client, message):
 async def redeem_code(client, message):
     chat_id = str(message.chat.id)
     try:
+        # Userbot check karega ki redeem karne wala admin hai ya nahi
+        user = await client.get_chat_member(message.chat.id, message.from_user.id)
+        if user.status not in [enums.ChatMemberStatus.OWNER, enums.ChatMemberStatus.ADMINISTRATOR]:
+            return await message.edit("❌ Only Group Admins can redeem.")
+        
         code = message.command[1]
         if code in db["licenses"]:
             days = db["licenses"].pop(code)
             db["active_groups"][chat_id] = time.time() + (days * 86400)
             if chat_id not in db["settings"]: db["settings"][chat_id] = {"delete_time": 60}
             save_data(db)
-            await message.edit(f"🔥 **Premium Activated!** A to Z (including Bots) will be deleted.")
+            await message.edit(f"🔥 **Premium Activated!**\nAb ye ID har message delete karegi.")
         else: await message.edit("❌ Invalid Code.")
-    except: await message.edit("Usage: `.redeem [code]`")
+    except Exception as e:
+        await message.edit(f"Error: {e}")
 
 @app.on_message(filters.command("settime", prefixes=".") & filters.group)
 async def set_time(client, message):
@@ -88,7 +103,7 @@ async def track_everything(client, message):
     
     # Check if group is premium
     if chat_id in db["active_groups"] and db["active_groups"][chat_id] > time.time():
-        # ID commands ko skip karegi taaki control chalta rahe
+        # Commands ko skip karein taaki loop na bane
         if message.text and message.text.startswith("."): return
         
         delay = db["settings"].get(chat_id, {}).get("delete_time", 60)
@@ -107,16 +122,17 @@ async def delete_worker():
         
         for m in to_del:
             try:
-                # Userbot har message (bot/user/admin) delete kar sakta hai
+                # Userbot har message (bot/user/admin) delete karega
                 await app.delete_messages(m['cid'], m['mid'])
             except FloodWait as e: await asyncio.sleep(e.value)
             except: pass
         await asyncio.sleep(1)
 
+# --- STARTUP ---
 async def start_services():
     threading.Thread(target=run_web, daemon=True).start()
     await app.start()
-    print(">>> USERBOT IS ONLINE (MissRose is now target!)")
+    print(">>> USERBOT IS ONLINE!")
     asyncio.create_task(delete_worker())
     from pyrogram.methods.utilities.idle import idle
     await idle()
